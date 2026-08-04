@@ -128,6 +128,9 @@ db.reviews.insertOne({
 
 db.posts.createIndex({ "authorId": 1 });
 
+// title is indexed to support keyword search (User Story 3.1)
+db.posts.createIndex({ "title": 1 });
+
 // ============================================================
 // 6. JOIN QUERIES ($lookup) - used to reconnect referenced data
 // ============================================================
@@ -161,7 +164,32 @@ db.posts.aggregate([
 ]);
 
 // ============================================================
-// 7. PERFORMANCE VERIFICATION (see performance-report.md)
+// 7. SEARCH (User Story 3.1) - case-insensitive keyword search
+// ============================================================
+// $regex with the "i" option matches regardless of letter case,
+// e.g. searching "voting" (lowercase) still matches "Voting".
+
+db.posts.find({ "title": { $regex: "voting", $options: "i" } });
+
+// ============================================================
+// 8. SORTING - newest posts first
+// ============================================================
+// Requires a createdAt field on each post. -1 = descending
+// (largest/most recent timestamp first).
+
+db.posts.updateOne({ "title": "Voting" }, { $set: { "createdAt": new Date() } });
+db.posts.updateOne({ "title": "AI influence" }, { $set: { "createdAt": new Date() } });
+
+db.posts.find().sort({ "createdAt": -1 });
+
+// NOTE: Filler posts generated earlier in this script do not have
+// a createdAt field, since it was added only to two posts as a
+// demonstration. In production, createdAt should be set on every
+// post at insert time (not patched on afterward) to avoid
+// inconsistent sort behavior for documents missing the field.
+
+// ============================================================
+// 9. PERFORMANCE VERIFICATION (see performance-report.md)
 // ============================================================
 // db.posts.find({ "authorId": ObjectId("...") }).explain("executionStats")
 // Before index -> stage: COLLSCAN, totalDocsExamined: 5002
