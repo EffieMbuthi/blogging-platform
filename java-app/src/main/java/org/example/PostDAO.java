@@ -4,6 +4,9 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.DeleteResult;
+import com.mongodb.client.result.UpdateResult;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 
@@ -38,5 +41,17 @@ public class PostDAO {
     // — eq, gt, lt, regex for pattern matching,
     public Document findPostById(ObjectId id){
         return postsCollection.find(Filters.eq("_id", id)).first();
+    }
+
+    public void updatePostTitle(ObjectId postId, String newTitle){
+        UpdateResult result= postsCollection.updateOne(
+                Filters.eq("_id", postId), //where
+                Updates.set("title", newTitle)); // $set
+        System.out.println("Matched: " + result.getMatchedCount()+ ", Modified: " + result.getModifiedCount());
+    }
+
+    public void deletePost(ObjectId postId){
+        DeleteResult result= postsCollection.deleteOne(Filters.eq("_id", postId));
+        System.out.println("Deleted count: " + result.getDeletedCount());
     }
 }
