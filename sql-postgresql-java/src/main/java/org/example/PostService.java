@@ -6,6 +6,7 @@ import java.util.List;
 
 public class PostService {
     private PostDAO postDAO;
+    private List<Post> cachedPosts= null;
 
     public PostService() {
         this.postDAO = new PostDAO();
@@ -18,21 +19,44 @@ public class PostService {
         if (body == null || body.isBlank()) {
             throw new IllegalArgumentException("Body cannot be empty.");
         }
-        postDAO.createPost(authorId, title, body);
+        int newId= postDAO.createPost(authorId, title, body);
+        Post newPost= new Post(newId, authorId, title, body);
+        if(cachedPosts!=null){
+            cachedPosts.add(newPost);
+        }
+
     }
 
     public List<Post> getAllPosts() throws SQLException {
-        return postDAO.findAllPosts();
+        if (cachedPosts==null){
+            cachedPosts= postDAO.findAllPosts();
+        }
+        return cachedPosts;
+
     }
 
-    public void updatePostTitle(int postId, String newTitle) throws SQLException {
+    public void updatePost(int postId, String newTitle, String newBody) throws SQLException {
         if (newTitle == null || newTitle.isBlank()) {
             throw new IllegalArgumentException("Title cannot be empty.");
         }
-        postDAO.updatePostTitle(postId, newTitle);
+        if (newBody == null || newBody.isBlank()) {
+            throw new IllegalArgumentException("Body cannot be empty.");
+        }
+        postDAO.updatePost(postId, newTitle, newBody);
+        if (cachedPosts != null) {
+            for (Post post : cachedPosts) {
+                if (post.getId() == postId) {
+                    post.setTitle(newTitle);
+                    post.setBody(newBody);
+                }
+            }
+        }
     }
 
     public void deletePost(int postId) throws SQLException {
         postDAO.deletePost(postId);
+        if (cachedPosts!=null){
+            cachedPosts.removeIf(post->post.getId()==postId);
+        }
     }
 }

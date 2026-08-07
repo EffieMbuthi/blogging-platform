@@ -26,7 +26,7 @@ public class BlogApp extends Application {
         bodyField.setPromptText("Post body");
 
         Button createButton = new Button("Create Post");
-        Button updateButton = new Button("Update Selected Title");
+        Button updateButton = new Button("Update Selected Post");
         Button deleteButton = new Button("Delete Selected");
         Label statusLabel = new Label();
 
@@ -64,7 +64,7 @@ public class BlogApp extends Application {
             }
             try {
                 int postId = titleToPostMap.get(selectedTitle).getId();
-                postService.updatePostTitle(postId, titleField.getText());
+                postService.updatePost(postId, titleField.getText(), bodyField.getText());
                 statusLabel.setText("Post updated successfully.");
                 titleField.clear();
                 bodyField.clear();

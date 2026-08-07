@@ -6,15 +6,27 @@ import java.util.List;
 
 public class PostDAO {
 
-    public void createPost(int authorId, String title, String body) throws SQLException {
+    public int createPost(int authorId, String title, String body) throws SQLException {
         String sql = "INSERT INTO posts (user_id, title, body) VALUES (?, ?, ?)";
         try (Connection conn = PostgresConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             //when you prepare your INSERT statement, you can tell it "after this runs,
+             // I want you to hand me back whatever id got generated.(RETURN GENERATED KEYS)
+             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            //When this statement runs, keep track of any auto-generated column values, so I can ask for them afterward.
+            //Without this flag, JDBC doesn't bother tracking that information at all — it's an opt-in feature, not automatic
 
             stmt.setInt(1, authorId);
             stmt.setString(2, title);
             stmt.setString(3, body);
             stmt.executeUpdate();
+
+            //After running the insert, ask for the generated key
+            ResultSet generatedKeys= stmt.getGeneratedKeys(); //just this time it doesn't hold rows of your posts table; it holds exactly one row, one column: the newly generated id.
+            if (generatedKeys.next()) {
+                return generatedKeys.getInt(1);
+            } else {
+                throw new SQLException("Failed to retrieve generated post id.");
+            }
         }
     }
 
@@ -41,15 +53,15 @@ public class PostDAO {
         return posts;
     }
 
-    public void updatePostTitle(int postId, String newTitle) throws SQLException {
-        String sql = "UPDATE posts SET title = ? WHERE id = ?";
+    public void updatePost(int postId, String newTitle, String newBody) throws SQLException {
+        String sql = "UPDATE posts SET title = ?, body = ? WHERE id = ?";
         try (Connection conn = PostgresConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, newTitle);
-            stmt.setInt(2, postId);
-            int rowsAffected = stmt.executeUpdate();
-            System.out.println("Rows updated: " + rowsAffected);
+            stmt.setString(2, newBody);
+            stmt.setInt(3, postId);
+            stmt.executeUpdate();
         }
     }
 
