@@ -1,6 +1,8 @@
 package org.example;
 
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class PostDAO {
 
@@ -16,11 +18,27 @@ public class PostDAO {
         }
     }
 
-    public ResultSet findAllPosts() throws SQLException {
+    public List<Post> findAllPosts() throws SQLException {
+        // loops through ResultSet internally, builds Post objects, returns a List<Post>(for updates)
         String sql = "SELECT * FROM posts";
-        Connection conn = PostgresConnection.getConnection();
-        PreparedStatement stmt = conn.prepareStatement(sql);
-        return stmt.executeQuery();
+        List<Post> posts = new ArrayList<>();
+
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+
+            //still creates that exact same ResultSet internally, loops through it itself,
+            // converts each row into a Post object — and only then hands back the finished List<Post>
+            while (rs.next()) {// stops automatically when rs.next() returns false (no more rows left).
+                posts.add(new Post(
+                        rs.getInt("id"),
+                        rs.getInt("user_id"),
+                        rs.getString("title"),
+                        rs.getString("body")
+                ));
+            }
+        }
+        return posts;
     }
 
     public void updatePostTitle(int postId, String newTitle) throws SQLException {

@@ -2,6 +2,7 @@ package org.example;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
 
 public class PostService {
     private PostDAO postDAO;
@@ -20,7 +21,7 @@ public class PostService {
         postDAO.createPost(authorId, title, body);
     }
 
-    public ResultSet getAllPosts() throws SQLException {
+    public List<Post> getAllPosts() throws SQLException {
         return postDAO.findAllPosts();
     }
 
