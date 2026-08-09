@@ -78,4 +78,55 @@ public class PostDAO {
             System.out.println("Rows deleted: " + rowsAffected);
         }
     }
+
+    //ILIKE= case insensitive
+    public List<Post> searchPostsByTitle(String keyword) throws SQLException {
+        String sql = "SELECT * FROM posts WHERE title ILIKE ?";
+        List<Post> posts = new ArrayList<>();
+
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            //anything can come before/after this." So searching "vot"
+            // becomes the pattern "%vot%", matching "Voting", "devoted",
+            // anything containing "vot" anywhere in the string
+            stmt.setString(1, "%" + keyword + "%");
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    posts.add(new Post(
+                            rs.getInt("id"),
+                            rs.getInt("user_id"),
+                            rs.getString("title"),
+                            rs.getString("body")
+                    ));
+                }
+            }
+        }
+        return posts;
+    }
+
+    public List<Post> findPostsPaginated(int pageNumber, int pageSize) throws SQLException {
+        String sql = "SELECT * FROM posts ORDER BY id LIMIT ? OFFSET ?";
+        List<Post> posts = new ArrayList<>();
+        int offset = (pageNumber - 1) * pageSize;
+
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, pageSize);
+            stmt.setInt(2, offset);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    posts.add(new Post(
+                            rs.getInt("id"),
+                            rs.getInt("user_id"),
+                            rs.getString("title"),
+                            rs.getString("body")
+                    ));
+                }
+            }
+        }
+        return posts;
+    }
 }

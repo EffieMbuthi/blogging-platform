@@ -61,4 +61,15 @@ public class PostService {
             cachedPosts.removeIf(post->post.getId()==postId);
         }
     }
+
+    public List<Post> getPostsPage(int pageNumber, int pageSize) throws SQLException {
+        return postDAO.findPostsPaginated(pageNumber, pageSize);
+    }
+
+    public List<Post> searchPosts(String keyword) throws SQLException {
+        if (keyword == null || keyword.isBlank()) {
+            return getAllPosts();
+        }
+        return postDAO.searchPostsByTitle(keyword);
+    }
 }
