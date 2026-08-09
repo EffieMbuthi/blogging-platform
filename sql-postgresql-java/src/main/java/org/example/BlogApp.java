@@ -6,7 +6,9 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.HBox;
+import org.example.model.Comment;
 import org.example.model.Post;
+import org.example.service.CommentService;
 import org.example.service.PostService;
 
 import java.sql.SQLException;
@@ -18,6 +20,10 @@ public class BlogApp extends Application {
 
     private PostService postService = new PostService();
     private ListView<String> postListView = new ListView<>();
+
+    private CommentService commentService = new CommentService();
+    private ListView<String> commentListView = new ListView<>();
+
     private Map<String, Post> titleToPostMap = new HashMap<>();
     private int currentPage = 1;
     private final int PAGE_SIZE = 20;
@@ -35,14 +41,21 @@ public class BlogApp extends Application {
         TextField searchField= new TextField();
         searchField.setPromptText("Search by title..");
 
+        TextField commentField = new TextField();
+        commentField.setPromptText("Write a comment...");
+
         Button createButton = new Button("Create Post");
         Button updateButton = new Button("Update Selected Post");
         Button deleteButton = new Button("Delete Selected");
         Label statusLabel = new Label();
+
         Button searchButton= new Button("Search");
 
         Button prevButton = new Button("Previous");
         Button nextButton = new Button("Next");
+
+        Button addCommentButton = new Button("Add Comment");
+        Label commentsLabel = new Label("Comments:");
 
         loadPage();
 
@@ -52,6 +65,7 @@ public class BlogApp extends Application {
                 Post post = titleToPostMap.get(newValue);
                 titleField.setText(newValue);
                 bodyField.setText(post.getBody());
+                loadComments(post.getId());
             }
         });
 
@@ -149,10 +163,30 @@ public class BlogApp extends Application {
             }
         });
 
+        addCommentButton.setOnAction(event -> {
+            String selectedTitle = postListView.getSelectionModel().getSelectedItem();
+            if (selectedTitle == null) {
+                statusLabel.setText("Select a post first.");
+                return;
+            }
+            try {
+                int postId = titleToPostMap.get(selectedTitle).getId();
+                int userId = 1; // hardcoded, same simplification as post authorship
+                commentService.createComment(postId, userId, commentField.getText());
+                commentField.clear();
+                loadComments(postId);
+            } catch (IllegalArgumentException e) {
+                statusLabel.setText("Error: " + e.getMessage());
+            } catch (SQLException e) {
+                statusLabel.setText("Database error: " + e.getMessage());
+            }
+        });
+
         HBox searchRow = new HBox(10, searchField, searchButton);
         HBox buttonRow = new HBox(10, createButton, updateButton, deleteButton);
         HBox paginationRow = new HBox(10, prevButton, pageLabel, nextButton);
-        VBox root = new VBox(10, searchRow, postListView, paginationRow, titleField, bodyField, buttonRow, statusLabel);
+        HBox addCommentRow = new HBox(10, commentField, addCommentButton);
+        VBox root = new VBox(10, searchRow, postListView, paginationRow, titleField, bodyField, buttonRow, commentsLabel, commentListView, addCommentRow, statusLabel);
         Scene scene = new Scene(root, 550, 500);
 
         primaryStage.setTitle("Blogging Platform (PostgreSQL)");
@@ -188,6 +222,18 @@ public class BlogApp extends Application {
             pageLabel.setText("Page " + currentPage);
         } catch (SQLException e) {
             postListView.getItems().add("Error loading posts: " + e.getMessage());
+        }
+    }
+
+    private void loadComments(int postId) {
+        commentListView.getItems().clear();
+        try {
+            List<Comment> comments = commentService.getCommentsForPost(postId);
+            for (Comment comment : comments) {
+                commentListView.getItems().add(comment.getBody());
+            }
+        } catch (SQLException e) {
+            commentListView.getItems().add("Error loading comments: " + e.getMessage());
         }
     }
 
