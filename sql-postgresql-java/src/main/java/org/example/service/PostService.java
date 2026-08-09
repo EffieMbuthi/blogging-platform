@@ -1,6 +1,8 @@
-package org.example;
+package org.example.service;
 
-import java.sql.ResultSet;
+import org.example.dao.PostDAO;
+import org.example.model.Post;
+
 import java.sql.SQLException;
 import java.util.List;
 

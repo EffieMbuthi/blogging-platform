@@ -6,6 +6,9 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.HBox;
+import org.example.model.Post;
+import org.example.service.PostService;
+
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.List;

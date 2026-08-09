@@ -1,4 +1,7 @@
-package org.example;
+package org.example.dao;
+
+import org.example.connection.PostgresConnection;
+import org.example.model.Post;
 
 import java.sql.*;
 import java.util.ArrayList;

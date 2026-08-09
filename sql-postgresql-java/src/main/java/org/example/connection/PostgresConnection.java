@@ -1,4 +1,4 @@
-package org.example;
+package org.example.connection;
 
 import io.github.cdimascio.dotenv.Dotenv;
 import java.sql.Connection;
