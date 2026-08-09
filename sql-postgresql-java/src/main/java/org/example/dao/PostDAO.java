@@ -129,4 +129,51 @@ public class PostDAO {
         }
         return posts;
     }
+
+    public List<Post> searchPostsByAuthor(String authorName) throws SQLException {
+        String sql = "SELECT posts.* FROM posts JOIN users ON posts.user_id = users.id WHERE users.name ILIKE ?";
+        List<Post> posts = new ArrayList<>();
+
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, "%" + authorName + "%");
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    posts.add(new Post(
+                            rs.getInt("id"),
+                            rs.getInt("user_id"),
+                            rs.getString("title"),
+                            rs.getString("body")
+                    ));
+                }
+            }
+        }
+        return posts;
+    }
+
+    public List<Post> searchPostsByTag(String tagName) throws SQLException {
+        String sql = "SELECT posts.* FROM posts " +
+                "JOIN post_tags ON posts.id = post_tags.post_id " +
+                "JOIN tags ON post_tags.tag_id = tags.id " +
+                "WHERE tags.name ILIKE ?";
+        List<Post> posts = new ArrayList<>();
+
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, "%" + tagName + "%");
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    posts.add(new Post(
+                            rs.getInt("id"),
+                            rs.getInt("user_id"),
+                            rs.getString("title"),
+                            rs.getString("body")
+                    ));
+                }
+            }
+        }
+        return posts;
+    }
 }

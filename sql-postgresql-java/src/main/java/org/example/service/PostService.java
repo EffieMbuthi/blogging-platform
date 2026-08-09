@@ -72,4 +72,18 @@ public class PostService {
         }
         return postDAO.searchPostsByTitle(keyword);
     }
+
+    public List<Post> searchPostsByAuthor(String authorName) throws SQLException {
+        if (authorName == null || authorName.isBlank()) {
+            return getAllPosts();
+        }
+        return postDAO.searchPostsByAuthor(authorName);
+    }
+
+    public List<Post> searchPostsByTag(String tagName) throws SQLException {
+        if (tagName == null || tagName.isBlank()) {
+            return getAllPosts();
+        }
+        return postDAO.searchPostsByTag(tagName);
+    }
 }

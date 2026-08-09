@@ -25,13 +25,21 @@ public class BlogApp extends Application {
     private ListView<String> commentListView = new ListView<>();
 
     private Map<String, Post> titleToPostMap = new HashMap<>();
+
+    private Label statusLabel = new Label();
+
     private int currentPage = 1;
     private final int PAGE_SIZE = 20;
     private Label pageLabel = new Label("Page 1");
 
+    private ComboBox<String> searchTypeBox = new ComboBox<>();
+
 
     @Override
     public void start(Stage primaryStage) {
+        searchTypeBox.getItems().addAll("Title", "Author", "Tag");
+        searchTypeBox.setValue("Title");
+
         TextField titleField = new TextField();
         titleField.setPromptText("Post title");
 
@@ -47,7 +55,6 @@ public class BlogApp extends Application {
         Button createButton = new Button("Create Post");
         Button updateButton = new Button("Update Selected Post");
         Button deleteButton = new Button("Delete Selected");
-        Label statusLabel = new Label();
 
         Button searchButton= new Button("Search");
 
@@ -104,34 +111,10 @@ public class BlogApp extends Application {
             }
         });
 
-        searchButton.setOnAction(event -> {
-            try {
-                List<Post> results = postService.searchPosts(searchField.getText());
-                postListView.getItems().clear();
-                titleToPostMap.clear();
-                for (Post post : results) {
-                    postListView.getItems().add(post.getTitle());
-                    titleToPostMap.put(post.getTitle(), post);
-                }
-            } catch (SQLException e) {
-                statusLabel.setText("Search error: " + e.getMessage());
-            }
-        });
+        searchButton.setOnAction(event -> performSearch(searchField.getText()));
 
         //listening to text field (#live filtering)
-        searchField.textProperty().addListener((obs, oldValue, newValue) -> {
-            try {
-                List<Post> results = postService.searchPosts(newValue);
-                postListView.getItems().clear();
-                titleToPostMap.clear();
-                for (Post post : results) {
-                    postListView.getItems().add(post.getTitle());
-                    titleToPostMap.put(post.getTitle(), post);
-                }
-            } catch (SQLException e) {
-                statusLabel.setText("Search error: " + e.getMessage());
-            }
-        });
+        searchField.textProperty().addListener((obs, oldValue, newValue) -> performSearch(newValue));
 
         nextButton.setOnAction(event -> {
             currentPage++;
@@ -182,7 +165,7 @@ public class BlogApp extends Application {
             }
         });
 
-        HBox searchRow = new HBox(10, searchField, searchButton);
+        HBox searchRow = new HBox(10, searchTypeBox, searchField, searchButton);
         HBox buttonRow = new HBox(10, createButton, updateButton, deleteButton);
         HBox paginationRow = new HBox(10, prevButton, pageLabel, nextButton);
         HBox addCommentRow = new HBox(10, commentField, addCommentButton);
@@ -234,6 +217,28 @@ public class BlogApp extends Application {
             }
         } catch (SQLException e) {
             commentListView.getItems().add("Error loading comments: " + e.getMessage());
+        }
+    }
+
+    private void performSearch(String keyword) {
+        System.out.println("Search type: " + searchTypeBox.getValue() + " | Keyword: " + keyword);
+        try {
+            List<Post> results;
+            if (searchTypeBox.getValue().equals("Author")) {
+                results = postService.searchPostsByAuthor(keyword);
+            } else if (searchTypeBox.getValue().equals("Tag")) {
+                results = postService.searchPostsByTag(keyword);
+            } else {
+                results = postService.searchPosts(keyword);
+            }
+            postListView.getItems().clear();
+            titleToPostMap.clear();
+            for (Post post : results) {
+                postListView.getItems().add(post.getTitle());
+                titleToPostMap.put(post.getTitle(), post);
+            }
+        } catch (SQLException e) {
+            statusLabel.setText("Search error: " + e.getMessage());
         }
     }
 
