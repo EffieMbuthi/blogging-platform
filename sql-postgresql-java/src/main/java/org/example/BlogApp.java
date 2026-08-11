@@ -8,8 +8,11 @@ import javafx.scene.layout.VBox;
 import javafx.scene.layout.HBox;
 import org.example.model.Comment;
 import org.example.model.Post;
+import org.example.model.Tag;
 import org.example.service.CommentService;
 import org.example.service.PostService;
+import org.example.service.ReviewService;
+import org.example.service.TagService;
 
 import java.sql.SQLException;
 import java.util.HashMap;
@@ -17,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 
 public class BlogApp extends Application {
+    private ReviewService reviewService = new ReviewService();
+    private TagService tagService = new TagService();
 
     private PostService postService = new PostService();
     private ListView<String> postListView = new ListView<>();
@@ -33,6 +38,9 @@ public class BlogApp extends Application {
     private Label pageLabel = new Label("Page 1");
 
     private ComboBox<String> searchTypeBox = new ComboBox<>();
+
+    private ComboBox<String> tagSelectBox = new ComboBox<>();
+    private Map<String, Integer> tagNameToIdMap = new HashMap<>();
 
 
     @Override
@@ -63,6 +71,15 @@ public class BlogApp extends Application {
 
         Button addCommentButton = new Button("Add Comment");
         Label commentsLabel = new Label("Comments:");
+
+        Spinner<Integer> ratingSpinner = new Spinner<>(1, 5, 5);
+        Button addReviewButton = new Button("Add Review");
+
+        TextField tagField = new TextField();
+        tagField.setPromptText("New tag name");
+        Button addTagButton = new Button("Add Tag");
+
+        Button attachTagButton = new Button("Attach Tag to Selected Post");
 
         loadPage();
 
@@ -165,11 +182,61 @@ public class BlogApp extends Application {
             }
         });
 
+        addReviewButton.setOnAction(event -> {
+            String selectedTitle = postListView.getSelectionModel().getSelectedItem();
+            if (selectedTitle == null) {
+                statusLabel.setText("Select a post first.");
+                return;
+            }
+            try {
+                int postId = titleToPostMap.get(selectedTitle).getId();
+                int userId = 1;
+                reviewService.createReview(postId, userId, ratingSpinner.getValue());
+                statusLabel.setText("Review added successfully.");
+            } catch (IllegalArgumentException e) {
+                statusLabel.setText("Error: " + e.getMessage());
+            } catch (SQLException e) {
+                statusLabel.setText("Database error: " + e.getMessage());
+            }
+        });
+
+        addTagButton.setOnAction(event -> {
+            try {
+                tagService.createTag(tagField.getText());
+                statusLabel.setText("Tag created successfully.");
+                tagField.clear();
+            } catch (IllegalArgumentException e) {
+                statusLabel.setText("Error: " + e.getMessage());
+            } catch (SQLException e) {
+                statusLabel.setText("Database error: " + e.getMessage());
+            }
+        });
+
+        attachTagButton.setOnAction(event -> {
+            String selectedTitle = postListView.getSelectionModel().getSelectedItem();
+            String selectedTagName = tagSelectBox.getValue();
+            if (selectedTitle == null || selectedTagName == null) {
+                statusLabel.setText("Select both a post and a tag first.");
+                return;
+            }
+            try {
+                int postId = titleToPostMap.get(selectedTitle).getId();
+                int tagId = tagNameToIdMap.get(selectedTagName);
+                tagService.linkTagToPost(postId, tagId);
+                statusLabel.setText("Tag attached successfully.");
+            } catch (SQLException e) {
+                statusLabel.setText("Database error: " + e.getMessage());
+            }
+        });
+
+        HBox addTagRow = new HBox(10, tagField, addTagButton);
+        HBox addReviewRow = new HBox(10, ratingSpinner, addReviewButton);
         HBox searchRow = new HBox(10, searchTypeBox, searchField, searchButton);
         HBox buttonRow = new HBox(10, createButton, updateButton, deleteButton);
         HBox paginationRow = new HBox(10, prevButton, pageLabel, nextButton);
         HBox addCommentRow = new HBox(10, commentField, addCommentButton);
-        VBox root = new VBox(10, searchRow, postListView, paginationRow, titleField, bodyField, buttonRow, commentsLabel, commentListView, addCommentRow, statusLabel);
+        VBox root = new VBox(10, searchRow, postListView, paginationRow, titleField, bodyField, buttonRow, commentsLabel, commentListView, addCommentRow, statusLabel, addReviewRow, addTagRow);
+
         Scene scene = new Scene(root, 550, 500);
 
         primaryStage.setTitle("Blogging Platform (PostgreSQL)");
@@ -239,6 +306,20 @@ public class BlogApp extends Application {
             }
         } catch (SQLException e) {
             statusLabel.setText("Search error: " + e.getMessage());
+        }
+    }
+
+    private void loadTags() {
+        tagSelectBox.getItems().clear();
+        tagNameToIdMap.clear();
+        try {
+            List<Tag> tags = tagService.getAllTags();
+            for (Tag tag : tags) {
+                tagSelectBox.getItems().add(tag.getName());
+                tagNameToIdMap.put(tag.getName(), tag.getId());
+            }
+        } catch (SQLException e) {
+            statusLabel.setText("Error loading tags: " + e.getMessage());
         }
     }
 

@@ -138,6 +138,7 @@ public class PostDAO {
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, "%" + authorName + "%");
+
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     posts.add(new Post(
