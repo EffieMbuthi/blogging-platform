@@ -4,13 +4,17 @@ import javafx.application.Application;
 import javafx.stage.Stage;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.HBox;
+import javafx.collections.FXCollections;
 import org.example.model.Comment;
 import org.example.model.Post;
+import org.example.model.PostEngagement;
 import org.example.model.Tag;
 import org.example.service.CommentService;
 import org.example.service.PostService;
+import org.example.service.ReportService;
 import org.example.service.ReviewService;
 import org.example.service.TagService;
 
@@ -18,10 +22,12 @@ import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class BlogApp extends Application {
     private ReviewService reviewService = new ReviewService();
     private TagService tagService = new TagService();
+    private ReportService reportService = new ReportService();
 
     private PostService postService = new PostService();
     private ListView<String> postListView = new ListView<>();
@@ -30,21 +36,50 @@ public class BlogApp extends Application {
     private ListView<String> commentListView = new ListView<>();
 
     private Map<String, Post> titleToPostMap = new HashMap<>();
+    private Post selectedPost = null;
 
     private Label statusLabel = new Label();
 
     private int currentPage = 1;
     private final int PAGE_SIZE = 20;
     private Label pageLabel = new Label("Page 1");
+    private Button prevButton = new Button("Previous");
+    private Button nextButton = new Button("Next");
 
     private ComboBox<String> searchTypeBox = new ComboBox<>();
 
-    private ComboBox<String> tagSelectBox = new ComboBox<>();
+    private ListView<String> allTagsListView = new ListView<>();
+    private ListView<String> postTagsListView = new ListView<>();
     private Map<String, Integer> tagNameToIdMap = new HashMap<>();
+    private Label selectedPostForTagsLabel = new Label("No post selected.");
 
+    private TableView<PostEngagement> reportTable = new TableView<>();
 
     @Override
     public void start(Stage primaryStage) {
+        Tab postsTab = new Tab("Posts", buildPostsTab());
+        postsTab.setClosable(false);
+
+        Tab tagsTab = new Tab("Tags", buildTagsTab());
+        tagsTab.setClosable(false);
+
+        Tab analyticsTab = new Tab("Analytics", buildAnalyticsTab());
+        analyticsTab.setClosable(false);
+
+        TabPane tabPane = new TabPane(postsTab, tagsTab, analyticsTab);
+
+        VBox root = new VBox(10, tabPane, statusLabel);
+        Scene scene = new Scene(root, 650, 600);
+
+        primaryStage.setTitle("Blogging Platform (PostgreSQL)");
+        primaryStage.setScene(scene);
+        primaryStage.show();
+
+        loadPage();
+        loadTags();
+    }
+
+    private VBox buildPostsTab() {
         searchTypeBox.getItems().addAll("Title", "Author", "Tag");
         searchTypeBox.setValue("Title");
 
@@ -54,7 +89,7 @@ public class BlogApp extends Application {
         TextField bodyField = new TextField();
         bodyField.setPromptText("Post body");
 
-        TextField searchField= new TextField();
+        TextField searchField = new TextField();
         searchField.setPromptText("Search by title..");
 
         TextField commentField = new TextField();
@@ -64,10 +99,7 @@ public class BlogApp extends Application {
         Button updateButton = new Button("Update Selected Post");
         Button deleteButton = new Button("Delete Selected");
 
-        Button searchButton= new Button("Search");
-
-        Button prevButton = new Button("Previous");
-        Button nextButton = new Button("Next");
+        Button searchButton = new Button("Search");
 
         Button addCommentButton = new Button("Add Comment");
         Label commentsLabel = new Label("Comments:");
@@ -75,21 +107,14 @@ public class BlogApp extends Application {
         Spinner<Integer> ratingSpinner = new Spinner<>(1, 5, 5);
         Button addReviewButton = new Button("Add Review");
 
-        TextField tagField = new TextField();
-        tagField.setPromptText("New tag name");
-        Button addTagButton = new Button("Add Tag");
-
-        Button attachTagButton = new Button("Attach Tag to Selected Post");
-
-        loadPage();
-
-        // Pre-fill fields when a post is selected
+        // Pre-fill fields and refresh comments/tags when a post is selected
         postListView.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, newValue) -> {
             if (newValue != null) {
-                Post post = titleToPostMap.get(newValue);
+                selectedPost = titleToPostMap.get(newValue);
                 titleField.setText(newValue);
-                bodyField.setText(post.getBody());
-                loadComments(post.getId());
+                bodyField.setText(selectedPost.getBody());
+                loadComments(selectedPost.getId());
+                loadPostTags(selectedPost.getId());
             }
         });
 
@@ -200,11 +225,31 @@ public class BlogApp extends Application {
             }
         });
 
+        HBox addReviewRow = new HBox(10, ratingSpinner, addReviewButton);
+        HBox searchRow = new HBox(10, searchTypeBox, searchField, searchButton);
+        HBox buttonRow = new HBox(10, createButton, updateButton, deleteButton);
+        HBox paginationRow = new HBox(10, prevButton, pageLabel, nextButton);
+        HBox addCommentRow = new HBox(10, commentField, addCommentButton);
+
+        return new VBox(10, searchRow, postListView, paginationRow, titleField, bodyField, buttonRow,
+                commentsLabel, commentListView, addCommentRow, addReviewRow);
+    }
+
+    private VBox buildTagsTab() {
+        TextField tagField = new TextField();
+        tagField.setPromptText("New tag name");
+        Button addTagButton = new Button("Add Tag");
+        Button renameTagButton = new Button("Rename Selected Tag");
+        Button deleteTagButton = new Button("Delete Selected Tag");
+        Button attachTagButton = new Button("Attach to Selected Post");
+        Button detachTagButton = new Button("Detach from Selected Post");
+
         addTagButton.setOnAction(event -> {
             try {
                 tagService.createTag(tagField.getText());
                 statusLabel.setText("Tag created successfully.");
                 tagField.clear();
+                loadTags();
             } catch (IllegalArgumentException e) {
                 statusLabel.setText("Error: " + e.getMessage());
             } catch (SQLException e) {
@@ -212,53 +257,122 @@ public class BlogApp extends Application {
             }
         });
 
-        attachTagButton.setOnAction(event -> {
-            String selectedTitle = postListView.getSelectionModel().getSelectedItem();
-            String selectedTagName = tagSelectBox.getValue();
-            if (selectedTitle == null || selectedTagName == null) {
-                statusLabel.setText("Select both a post and a tag first.");
+        renameTagButton.setOnAction(event -> {
+            String selectedTagName = allTagsListView.getSelectionModel().getSelectedItem();
+            if (selectedTagName == null) {
+                statusLabel.setText("Select a tag first.");
+                return;
+            }
+            TextInputDialog dialog = new TextInputDialog(selectedTagName);
+            dialog.setTitle("Rename Tag");
+            dialog.setHeaderText("Rename tag '" + selectedTagName + "'");
+            dialog.setContentText("New name:");
+            Optional<String> result = dialog.showAndWait();
+            if (result.isEmpty()) {
                 return;
             }
             try {
-                int postId = titleToPostMap.get(selectedTitle).getId();
                 int tagId = tagNameToIdMap.get(selectedTagName);
-                tagService.linkTagToPost(postId, tagId);
+                tagService.renameTag(tagId, result.get());
+                statusLabel.setText("Tag renamed successfully.");
+                loadTags();
+                if (selectedPost != null) {
+                    loadPostTags(selectedPost.getId());
+                }
+            } catch (IllegalArgumentException e) {
+                statusLabel.setText("Error: " + e.getMessage());
+            } catch (SQLException e) {
+                statusLabel.setText("Database error: " + e.getMessage());
+            }
+        });
+
+        deleteTagButton.setOnAction(event -> {
+            String selectedTagName = allTagsListView.getSelectionModel().getSelectedItem();
+            if (selectedTagName == null) {
+                statusLabel.setText("Select a tag first.");
+                return;
+            }
+            try {
+                int tagId = tagNameToIdMap.get(selectedTagName);
+                tagService.deleteTag(tagId);
+                statusLabel.setText("Tag deleted successfully.");
+                loadTags();
+                if (selectedPost != null) {
+                    loadPostTags(selectedPost.getId());
+                }
+            } catch (SQLException e) {
+                statusLabel.setText("Database error: " + e.getMessage());
+            }
+        });
+
+        attachTagButton.setOnAction(event -> {
+            String selectedTagName = allTagsListView.getSelectionModel().getSelectedItem();
+            if (selectedPost == null || selectedTagName == null) {
+                statusLabel.setText("Select both a post (in the Posts tab) and a tag first.");
+                return;
+            }
+            try {
+                int tagId = tagNameToIdMap.get(selectedTagName);
+                tagService.linkTagToPost(selectedPost.getId(), tagId);
                 statusLabel.setText("Tag attached successfully.");
+                loadPostTags(selectedPost.getId());
+            } catch (IllegalArgumentException e) {
+                statusLabel.setText("Error: " + e.getMessage());
+            } catch (SQLException e) {
+                statusLabel.setText("Database error: " + e.getMessage());
+            }
+        });
+
+        detachTagButton.setOnAction(event -> {
+            String selectedTagName = postTagsListView.getSelectionModel().getSelectedItem();
+            if (selectedPost == null || selectedTagName == null) {
+                statusLabel.setText("Select both a post (in the Posts tab) and one of its tags first.");
+                return;
+            }
+            try {
+                int tagId = tagNameToIdMap.get(selectedTagName);
+                tagService.unlinkTagFromPost(selectedPost.getId(), tagId);
+                statusLabel.setText("Tag detached successfully.");
+                loadPostTags(selectedPost.getId());
             } catch (SQLException e) {
                 statusLabel.setText("Database error: " + e.getMessage());
             }
         });
 
         HBox addTagRow = new HBox(10, tagField, addTagButton);
-        HBox addReviewRow = new HBox(10, ratingSpinner, addReviewButton);
-        HBox searchRow = new HBox(10, searchTypeBox, searchField, searchButton);
-        HBox buttonRow = new HBox(10, createButton, updateButton, deleteButton);
-        HBox paginationRow = new HBox(10, prevButton, pageLabel, nextButton);
-        HBox addCommentRow = new HBox(10, commentField, addCommentButton);
-        VBox root = new VBox(10, searchRow, postListView, paginationRow, titleField, bodyField, buttonRow, commentsLabel, commentListView, addCommentRow, statusLabel, addReviewRow, addTagRow);
+        HBox tagManageRow = new HBox(10, renameTagButton, deleteTagButton);
+        HBox attachRow = new HBox(10, attachTagButton, detachTagButton);
 
-        Scene scene = new Scene(root, 550, 500);
+        VBox allTagsBox = new VBox(5, new Label("All Tags"), allTagsListView, addTagRow, tagManageRow);
+        VBox postTagsBox = new VBox(5, selectedPostForTagsLabel, new Label("Tags on selected post"),
+                postTagsListView, attachRow);
 
-        primaryStage.setTitle("Blogging Platform (PostgreSQL)");
-        primaryStage.setScene(scene);
-        primaryStage.show();
+        return new VBox(10, new HBox(20, allTagsBox, postTagsBox));
     }
 
-             // for displaying everything in the list
-//    private void refreshPostList() {
-//        postListView.getItems().clear();
-//        titleToPostMap.clear();
-//        try {
-//            List<Post> posts = postService.getAllPosts();
-//            for (Post post : posts) {
-//                postListView.getItems().add(post.getTitle());
-//                titleToPostMap.put(post.getTitle(), post);
-//            }
-//        } catch (SQLException e) {
-//            postListView.getItems().add("Error loading posts: " + e.getMessage());
-//        }
-//    }
+    private VBox buildAnalyticsTab() {
+        TableColumn<PostEngagement, String> titleCol = new TableColumn<>("Title");
+        titleCol.setCellValueFactory(new PropertyValueFactory<>("title"));
 
+        TableColumn<PostEngagement, String> authorCol = new TableColumn<>("Author");
+        authorCol.setCellValueFactory(new PropertyValueFactory<>("authorName"));
+
+        TableColumn<PostEngagement, Integer> commentCountCol = new TableColumn<>("Comments");
+        commentCountCol.setCellValueFactory(new PropertyValueFactory<>("commentCount"));
+
+        TableColumn<PostEngagement, Double> avgRatingCol = new TableColumn<>("Avg Rating");
+        avgRatingCol.setCellValueFactory(new PropertyValueFactory<>("avgRating"));
+
+        TableColumn<PostEngagement, Integer> tagCountCol = new TableColumn<>("Tags");
+        tagCountCol.setCellValueFactory(new PropertyValueFactory<>("tagCount"));
+
+        reportTable.getColumns().addAll(titleCol, authorCol, commentCountCol, avgRatingCol, tagCountCol);
+
+        Button refreshButton = new Button("Refresh Report");
+        refreshButton.setOnAction(event -> loadReport());
+
+        return new VBox(10, new Label("Post Engagement Report"), refreshButton, reportTable);
+    }
 
     private void loadPage() {
         postListView.getItems().clear();
@@ -269,7 +383,10 @@ public class BlogApp extends Application {
                 postListView.getItems().add(post.getTitle());
                 titleToPostMap.put(post.getTitle(), post);
             }
-            pageLabel.setText("Page " + currentPage);
+            int totalPages = postService.getTotalPages(PAGE_SIZE);
+            pageLabel.setText("Page " + currentPage + " of " + totalPages);
+            prevButton.setDisable(currentPage <= 1);
+            nextButton.setDisable(currentPage >= totalPages);
         } catch (SQLException e) {
             postListView.getItems().add("Error loading posts: " + e.getMessage());
         }
@@ -288,7 +405,6 @@ public class BlogApp extends Application {
     }
 
     private void performSearch(String keyword) {
-        System.out.println("Search type: " + searchTypeBox.getValue() + " | Keyword: " + keyword);
         try {
             List<Post> results;
             if (searchTypeBox.getValue().equals("Author")) {
@@ -310,12 +426,12 @@ public class BlogApp extends Application {
     }
 
     private void loadTags() {
-        tagSelectBox.getItems().clear();
+        allTagsListView.getItems().clear();
         tagNameToIdMap.clear();
         try {
             List<Tag> tags = tagService.getAllTags();
             for (Tag tag : tags) {
-                tagSelectBox.getItems().add(tag.getName());
+                allTagsListView.getItems().add(tag.getName());
                 tagNameToIdMap.put(tag.getName(), tag.getId());
             }
         } catch (SQLException e) {
@@ -323,6 +439,28 @@ public class BlogApp extends Application {
         }
     }
 
+    private void loadPostTags(int postId) {
+        selectedPostForTagsLabel.setText("Selected post: " + selectedPost.getTitle());
+        postTagsListView.getItems().clear();
+        try {
+            List<Tag> tags = tagService.getTagsForPost(postId);
+            for (Tag tag : tags) {
+                postTagsListView.getItems().add(tag.getName());
+                tagNameToIdMap.put(tag.getName(), tag.getId());
+            }
+        } catch (SQLException e) {
+            statusLabel.setText("Error loading tags for post: " + e.getMessage());
+        }
+    }
+
+    private void loadReport() {
+        try {
+            List<PostEngagement> report = reportService.getPostEngagementReport();
+            reportTable.setItems(FXCollections.observableArrayList(report));
+        } catch (SQLException e) {
+            statusLabel.setText("Database error: " + e.getMessage());
+        }
+    }
 
     public static void main(String[] args) {
         launch(args);

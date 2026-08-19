@@ -51,4 +51,70 @@ public class TagDAO {
             stmt.executeUpdate();
         }
     }
+
+    public void unlinkTagFromPost(int postId, int tagId) throws SQLException {
+        String sql = "DELETE FROM post_tags WHERE post_id = ? AND tag_id = ?";
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, postId);
+            stmt.setInt(2, tagId);
+            stmt.executeUpdate();
+        }
+    }
+
+    public List<Tag> findTagsForPost(int postId) throws SQLException {
+        String sql = "SELECT tags.* FROM tags " +
+                "JOIN post_tags ON tags.id = post_tags.tag_id " +
+                "WHERE post_tags.post_id = ?";
+        List<Tag> tags = new ArrayList<>();
+
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, postId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    tags.add(new Tag(rs.getInt("id"), rs.getString("name")));
+                }
+            }
+        }
+        return tags;
+    }
+
+    public Tag findTagByNameIgnoreCase(String name) throws SQLException {
+        String sql = "SELECT * FROM tags WHERE LOWER(name) = LOWER(?)";
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, name);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return new Tag(rs.getInt("id"), rs.getString("name"));
+                }
+            }
+        }
+        return null;
+    }
+
+    public void updateTagName(int tagId, String newName) throws SQLException {
+        String sql = "UPDATE tags SET name = ? WHERE id = ?";
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, newName);
+            stmt.setInt(2, tagId);
+            stmt.executeUpdate();
+        }
+    }
+
+    public void deleteTag(int tagId) throws SQLException {
+        String sql = "DELETE FROM tags WHERE id = ?";
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, tagId);
+            stmt.executeUpdate();
+        }
+    }
 }

@@ -2,16 +2,26 @@
 
 ## 1. Purpose
 
-This report compares indexed query performance between the two
-database implementations built for the Blogging Platform project —
-MongoDB (NoSQL) and PostgreSQL (SQL) — and uses the results to
-justify the final choice of **PostgreSQL** as the submitted
-implementation.
+This report presents the raw, measured query-performance evidence
+collected from both database implementations built for the Blogging
+Platform project — MongoDB (NoSQL) and PostgreSQL (SQL). It contains
+**measurements only**; for the reasoning that turns these numbers
+(plus structural/design factors) into a final database choice, see
+`analysis-report.md`.
 
-Both tests use an equivalent query shape: find all posts belonging
-to a specific author, out of a dataset where that author has exactly
-one matching post among ~5,000 total posts. This shape was chosen
-deliberately so the majority of rows/documents do *not* match,
+**Note on the test dataset:** the ~5,000-row comparison in Sections 2
+and 3 used a temporary bulk-generated dataset (a standard technique
+for making an index's effect visible at scale), not the small sample
+data committed in `sql-postgresql/schema.sql` (which is intentionally
+kept minimal for demoing CRUD, not for performance testing). No
+fabricated numbers are reported here — every figure below is a
+directly captured `explain()`/`EXPLAIN ANALYZE` result or a printed
+`System.nanoTime()` measurement.
+
+Both index tests use an equivalent query shape: find all posts
+belonging to a specific author, out of a dataset where that author has
+exactly one matching post among ~5,000 total posts. This shape was
+chosen deliberately so the majority of rows/documents do *not* match,
 making the impact of indexing clearly visible.
 
 ## 2. MongoDB (NoSQL) Results
@@ -74,44 +84,51 @@ index, cost scales with the number of *matching* results instead —
 the central justification for indexing frequently-queried fields in
 either database technology.
 
-## 5. Beyond Raw Speed — Why PostgreSQL Was Chosen
+## 5. Optimization Coverage Beyond Posts
 
-Query speed alone does not fully justify the final database choice;
-both implementations achieved comparable, strong indexed-query
-performance. The deciding factors were structural, based on the
-project's data model:
+The indexing evidence above focuses on `posts.user_id` specifically,
+since it gives the clearest before/after contrast. The optimization
+work is not limited to that one table — see
+`sql-postgresql/sql-postgresql-design.md` (§5, "Indexing coverage
+across all tables") for the full index list, covering `comments`,
+`reviews`, `tags`, and `post_tags` as well.
 
-- **Referential integrity.** PostgreSQL rejects an insert referencing
-  a non-existent foreign key automatically (tested directly — an
-  attempt to insert a comment with an invalid `post_id` was rejected
-  with a clear constraint violation error). MongoDB accepted the
-  equivalent invalid reference silently, with no built-in protection
-  until custom validation was added.
-- **Data shape.** Every entity in this domain (Users, Posts, Comments,
-  Reviews, Tags) is inherently relational — most relationships
-  resolved to standard one-to-many or many-to-one references in both
-  implementations. Only Tags benefited meaningfully from MongoDB's
-  embedding capability; every other entity ended up structurally
-  equivalent to a relational design regardless of which database
-  was used.
-- **Validation enforcement.** PostgreSQL's `CHECK` constraint on
-  `reviews.rating` is enforced at table-creation time, for every
-  row, with no separate step. The equivalent MongoDB `$jsonSchema`
-  validator had to be added afterward, and a test insert
-  (`rating: 999`) was able to violate the rule before validation was
-  introduced.
-- **Reporting and aggregation.** The project's course content
-  emphasizes joins, aggregations, and window functions — features
-  SQL is built around natively, and which map less directly onto
-  MongoDB's aggregation pipeline for genuinely relational queries.
+`sql-postgresql-java/src/main/java/org/example/CachePerformanceTest.java`
+times four operations, not just the Post cache:
 
-## 6. Conclusion
+| Operation | What it measures |
+|---|---|
+| `PostService.getAllPosts()` (1st vs 2nd call) | In-memory cache: DB read vs cache hit |
+| `CommentDAO.findCommentsByPostId(1)` | `idx_comments_post_id` — used every time a post is selected in the UI |
+| `PostDAO.searchPostsByTag("politics")` | `idx_tags_name`, plus the `posts → post_tags → tags` two-hop join |
+| `ReportService.getPostEngagementReport()` | The Analytics tab's 4-table `JOIN` + `GROUP BY` + `COUNT`/`AVG` aggregate query |
 
-Both databases showed measurable, significant performance gains from
-indexing frequently-queried fields, following the same underlying
-principle (avoid scanning unmatched records). Given comparable
-performance, PostgreSQL was selected as the final implementation
-based on its enforced referential integrity, native support for the
-project's relational data model, and constraint enforcement built
-directly into the schema — reducing the amount of validation logic
-that must be independently maintained in the application layer.
+**Measured results** (run against the seeded local database, IntelliJ/Maven, 2026-08-19):
+
+| Operation | Time (ms) |
+|---|---|
+| Posts — cache miss | 1637.2996 |
+| Posts — cache hit | 0.0016 |
+| Comments by post_id | 140.5008 |
+| Posts by tag | 239.8389 |
+| Post Engagement report | 391.0850 |
+
+**Cache effect:** cache hit vs. cache miss is a ~1,000,000x
+difference (1637 ms → 0.0016 ms) — once `PostService` has the post
+list in memory, a repeat read costs nothing, exactly as designed in
+Section 8 of `sql-postgresql-design.md`.
+
+**Why the other rows aren't "fast and constant" in absolute terms:**
+`PostgresConnection.getConnection()` opens a brand-new JDBC connection
+on every single DAO call (no pooling) — so each row above is paying
+full connection-establishment cost (TCP handshake + auth + driver
+initialization), not just query execution time. That overhead
+explains the very first row's outsized 1637 ms (also absorbing JVM/
+class-loading startup) and the fact that indexed lookups still show
+triple-digit milliseconds. The comparison that isolates the *indexing*
+effect specifically is Section 3 above (`EXPLAIN ANALYZE`, same
+connection, before/after index: 1.914 ms → 0.250 ms) — that's the
+number that isolates "indexing works." This run's rows demonstrate a
+different, equally real finding: connection-per-call is the dominant
+cost in this application today. See `analysis-report.md` for what
+that implies going forward.

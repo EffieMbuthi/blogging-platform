@@ -7,8 +7,8 @@ layer for the Smart Blogging Platform project. Two full database
 implementations were built and evaluated — **MongoDB (NoSQL)** and
 **PostgreSQL (SQL)** — with **PostgreSQL selected as the final
 submitted implementation**. See `performance-report-comparison.md`
-for the measured performance comparison and reasoning behind that
-choice.
+for the raw measured performance comparison, and `analysis-report.md`
+for the analysis/reasoning behind that choice.
 
 Both implementations model the same blogging domain — Users, Posts,
 Comments, Reviews, and Tags — through a layered Controller → Service
@@ -22,7 +22,8 @@ blogging-platform/
 ├── nosql-mongodb-java/         # MongoDB Java application (evaluated alternative)
 ├── sql-postgresql/             # PostgreSQL schema script and design document
 ├── sql-postgresql-java/        # PostgreSQL Java application (FINAL SUBMISSION)
-├── performance-report-comparison.md   # MongoDB vs PostgreSQL comparison
+├── performance-report-comparison.md   # MongoDB vs PostgreSQL measured performance
+├── analysis-report.md          # Analysis/reasoning behind the final DB choice
 └── README.md                   # This file
 ```
 
@@ -40,17 +41,35 @@ application:
 
 ### Features implemented
 
-- Full CRUD for Posts through the JavaFX interface (create, read,
-  update, delete)
-- Case-insensitive search on post titles (button-triggered and
-  live-filtering as you type)
-- Pagination (20 posts per page, Next/Previous navigation)
+The JavaFX UI is organized into three tabs:
+
+- **Posts tab** — full CRUD (create, read, update, delete),
+  case-insensitive search by title/author/tag (button-triggered and
+  live-filtering as you type), pagination ("Page X of Y", 20 posts
+  per page, Next/Previous disabled at the boundaries), comments, and
+  reviews.
+- **Tags tab** — full CRUD for tags (create, rename, delete), with
+  case-insensitive duplicate-name rejection and a friendly error
+  message instead of a raw SQL error; attach/detach tags to/from the
+  post selected in the Posts tab; view of the tags on the selected
+  post.
+- **Analytics tab** — a Post Engagement report (title, author,
+  comment count, average rating, tag count) computed with a single
+  `JOIN`/`GROUP BY`/`COUNT`/`AVG` SQL query across four tables.
+
+Other implementation details:
 - In-memory caching of post reads, with fine-grained cache
   invalidation on create/update/delete
-- Full Model/DAO/Service layers for Users, Comments, Reviews, and
-  Tags (CRUD available; not yet wired into a dedicated UI screen)
+- Field validation beyond blank checks: title/body/comment length
+  limits and tag-name duplicate detection, enforced in the Service
+  layer before any SQL runs
+- Full Model/DAO/Service layers for Users and Reviews (CRUD
+  available; Reviews not yet wired into a dedicated list view)
 - Referential integrity and `CHECK` constraints enforced at the
   database level, verified through deliberate failure testing
+
+See `sql-postgresql/sql-postgresql-design.md` for the ER diagram and a
+worked example of the JavaFX → Service → DAO → Database data flow.
 
 ## MongoDB Implementation (Evaluated Alternative)
 
@@ -100,6 +119,29 @@ Both projects use `dotenv-java` to load credentials from a local
 See `nosql-mongodb/README.md` and `nosql-mongodb-java/` for full
 setup instructions for the MongoDB implementation.
 
+## Before the Review
+
+A checklist to run through before presenting, so the project is
+running and the supporting materials are easy to pull up on demand:
+
+1. `psql`/pgAdmin: re-run `sql-postgresql/schema.sql` against a fresh
+   `blogging_platform` database (or apply just the migration block at
+   the bottom of the file if the database already exists).
+2. Confirm `sql-postgresql-java/.env` has valid `POSTGRES_URL`,
+   `POSTGRES_USER`, `POSTGRES_PASSWORD`.
+3. `mvn javafx:run` (or the IntelliJ Maven `javafx:run` goal) and
+   smoke-test all three tabs: create/edit/delete a post; create a
+   duplicate tag (should show a friendly rejection, not a SQL error);
+   rename/delete/attach/detach a tag; page Next/Previous to the last
+   page; open Analytics and click "Refresh Report".
+4. Run `CachePerformanceTest.java` and have the printed timings ready
+   (see `performance-report-comparison.md` §5).
+5. `git status` — should be clean before pushing.
+6. Have these open/ready to reference during the session:
+   `sql-postgresql/sql-postgresql-design.md` (ER diagram + data flow
+   trace), `performance-report-comparison.md`, `analysis-report.md`,
+   `testing-evidence.md`.
+
 ## Security Note
 
 Database credentials are **never committed to this repository** in
@@ -111,7 +153,8 @@ code or scripts pushed to version control.
 
 | Document | Covers |
 |---|---|
-| `performance-report-comparison.md` | MongoDB vs PostgreSQL performance comparison and final choice justification |
+| `performance-report-comparison.md` | MongoDB vs PostgreSQL raw measured performance (indexing, caching) |
+| `analysis-report.md` | Analysis of those measurements plus structural factors that justify the final DB choice |
 | `sql-postgresql/sql-postgresql-design.md` | PostgreSQL schema design (final submission) |
 | `nosql-mongodb/database-design.md` | MongoDB schema design (comparison reference) |
 | `nosql-mongodb/performance-report.md` | MongoDB-only indexing performance report |

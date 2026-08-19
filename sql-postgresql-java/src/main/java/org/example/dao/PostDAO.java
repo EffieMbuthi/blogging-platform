@@ -105,6 +105,17 @@ public class PostDAO {
         return posts;
     }
 
+    public int countAllPosts() throws SQLException {
+        String sql = "SELECT COUNT(*) FROM posts";
+        try (Connection conn = PostgresConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+
+            rs.next();
+            return rs.getInt(1);
+        }
+    }
+
     public List<Post> findPostsPaginated(int pageNumber, int pageSize) throws SQLException {
         String sql = "SELECT * FROM posts ORDER BY id LIMIT ? OFFSET ?";
         List<Post> posts = new ArrayList<>();

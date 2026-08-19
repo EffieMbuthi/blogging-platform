@@ -67,9 +67,11 @@ CREATE TABLE tags (
 -- ============================================================
 -- Composite primary key (post_id, tag_id) prevents the same
 -- post/tag pairing from being inserted more than once.
+-- ON DELETE CASCADE: deleting a post or a tag removes only its
+-- junction rows, not the other side of the relationship.
 CREATE TABLE post_tags (
-    post_id INTEGER REFERENCES posts(id),
-    tag_id INTEGER REFERENCES tags(id),
+    post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+    tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
     PRIMARY KEY (post_id, tag_id)
 );
 
@@ -110,3 +112,14 @@ INSERT INTO reviews (post_id, user_id, rating) VALUES (1, 2, 5);
 INSERT INTO tags (name) VALUES ('politics');
 
 INSERT INTO post_tags (post_id, tag_id) VALUES (1, 1);
+
+-- ============================================================
+-- 9. MIGRATION — run this instead if your database already
+-- exists (created before ON DELETE CASCADE was added above).
+-- ============================================================
+-- ALTER TABLE post_tags DROP CONSTRAINT post_tags_post_id_fkey;
+-- ALTER TABLE post_tags DROP CONSTRAINT post_tags_tag_id_fkey;
+-- ALTER TABLE post_tags ADD CONSTRAINT post_tags_post_id_fkey
+--     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE;
+-- ALTER TABLE post_tags ADD CONSTRAINT post_tags_tag_id_fkey
+--     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE;

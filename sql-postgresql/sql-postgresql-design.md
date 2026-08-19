@@ -4,9 +4,10 @@
 
 This document covers the relational (PostgreSQL) database design for
 the Smart Blogging Platform, submitted as the final database
-implementation for this project (see `performance-report-comparison.md`
-for the reasoning behind choosing PostgreSQL over the MongoDB
-alternative that was also built and evaluated during development).
+implementation for this project (see `analysis-report.md` for the
+reasoning behind choosing PostgreSQL over the MongoDB alternative
+that was also built and evaluated during development, backed by the
+raw measurements in `performance-report-comparison.md`).
 
 The design follows the three-stage modeling process required by the
 project brief: a **conceptual model** (entities and relationships),
@@ -31,6 +32,57 @@ The many-to-many Posts↔Tags relationship requires a **junction
 table** (`post_tags`), since a single foreign key column cannot
 represent a relationship where both sides can have multiple
 matches.
+
+```mermaid
+erDiagram
+    USERS ||--o{ POSTS : authors
+    USERS ||--o{ COMMENTS : writes
+    USERS ||--o{ REVIEWS : writes
+    POSTS ||--o{ COMMENTS : has
+    POSTS ||--o{ REVIEWS : has
+    POSTS }o--o{ TAGS : "tagged with (via post_tags)"
+
+    USERS {
+        int id PK
+        varchar name
+        varchar email
+    }
+    POSTS {
+        int id PK
+        int user_id FK
+        varchar title
+        text body
+    }
+    COMMENTS {
+        int id PK
+        int post_id FK
+        int user_id FK
+        text body
+    }
+    REVIEWS {
+        int id PK
+        int post_id FK
+        int user_id FK
+        int rating
+    }
+    TAGS {
+        int id PK
+        varchar name
+    }
+    POST_TAGS {
+        int post_id PK_FK
+        int tag_id PK_FK
+    }
+```
+
+This diagram is generated directly from `schema.sql`'s `CREATE TABLE`
+statements (same column names, same keys) and is the **single source
+of truth** for the data model — any future schema change must update
+this diagram in the same commit, so the design artifact and the
+implementation can never drift apart again. `POST_TAGS` is drawn as
+its own entity, with both `post_id` and `tag_id` marked `PK_FK`, to
+make the many-to-many relationship and its junction table explicit
+rather than implied by prose.
 
 ## 3. Logical Model
 
@@ -109,7 +161,61 @@ author's post, out of ~5,000 posts, went from a full sequential scan
 unnecessarily checked, 0.250 ms). Full results in
 `performance-report-comparison.md`.
 
-## 6. Application-Layer Architecture
+### Indexing coverage across all tables
+
+Optimization was not limited to `posts` — every table that the
+application filters or searches by has a matching index:
+
+| Table | Indexed column | Why |
+|---|---|---|
+| posts | user_id | "posts by this author" (search, reports) |
+| posts | title | case-insensitive title search (`ILIKE`) |
+| comments | post_id | "comments for this post" (loaded on every post selection) |
+| reviews | post_id | "reviews for this post" |
+| tags | name | tag lookup by name (duplicate check, search-by-tag) |
+| post_tags | (post_id, tag_id) composite PK | also serves as the index backing both the "tags for a post" and "posts for a tag" joins |
+
+`CachePerformanceTest.java` times the comments-by-post and
+search-by-tag queries in addition to the Post cache, so the
+performance report is not posts-only. See `performance-report-comparison.md`.
+
+## 6. Data Flow — Worked Example
+
+To make the JavaFX → Service → DAO → Database call chain concrete
+(rather than just described in the abstract), here is one full
+request traced end-to-end: **clicking "Next" to page through posts**.
+
+1. **JavaFX (Controller)** — `BlogApp`'s `nextButton.setOnAction`
+   handler increments `currentPage` and calls `loadPage()`.
+2. **`loadPage()`** calls `postService.getPostsPage(currentPage,
+   PAGE_SIZE)` and `postService.getTotalPages(PAGE_SIZE)`.
+3. **Service** — `PostService.getPostsPage` performs no business
+   logic itself (pagination has no invalid state to reject) and
+   delegates straight to `postDAO.findPostsPaginated(pageNumber,
+   pageSize)`. `getTotalPages` calls `postDAO.countAllPosts()` and
+   divides by `pageSize`, rounding up.
+4. **DAO** — `PostDAO.findPostsPaginated` builds the parameterized SQL
+   `SELECT * FROM posts ORDER BY id LIMIT ? OFFSET ?`, computes
+   `offset = (pageNumber - 1) * pageSize`, executes it, and maps each
+   `ResultSet` row into a `Post` object.
+5. **Database** — PostgreSQL executes the `LIMIT`/`OFFSET` query
+   against the `posts` table (using the primary key index for the
+   `ORDER BY id`) and returns exactly `PAGE_SIZE` rows (or fewer, on
+   the last page).
+6. **Back up the chain** — the `List<Post>` returns unchanged through
+   `PostDAO` → `PostService` → `BlogApp`, which clears
+   `postListView`/`titleToPostMap` and repopulates them, then updates
+   `pageLabel` to `"Page X of Y"` and disables `nextButton`/
+   `prevButton` at the first/last page boundary.
+
+Every other feature in the application (tags, comments, reviews, the
+analytics report) follows this same three-layer pattern: the
+JavaFX handler never touches SQL directly, the Service layer is where
+validation/business rules live (e.g. `TagService` rejecting a
+duplicate tag name before it ever reaches the database), and the DAO
+layer is the only place `PreparedStatement`/`ResultSet` appear.
+
+## 7. Application-Layer Architecture
 
 The Java application follows a layered architecture, matching the
 Technical Requirements (Controller → Service → DAO):
@@ -118,23 +224,28 @@ Technical Requirements (Controller → Service → DAO):
   using credentials loaded from a `.env` file (never hardcoded or
   committed to version control).
 - **`dao/`** — one DAO class per entity (`PostDAO`, `CommentDAO`,
-  `ReviewDAO`, `TagDAO`, `UserDAO`), each responsible only for
+  `ReviewDAO`, `TagDAO`, `UserDAO`), plus `ReportDAO` for the
+  read-only analytics query, each responsible only for
   translating method calls into parameterized SQL (`PreparedStatement`)
   and mapping `ResultSet` rows into plain model objects. DAOs contain
   no business rules.
 - **`service/`** — one Service class per entity, responsible for
-  validation (e.g. rejecting blank titles, rejecting ratings outside
-  1–5) before delegating to the DAO. `PostService` additionally
-  implements in-memory caching (see Section 7).
+  validation (e.g. rejecting blank/duplicate/over-length titles and
+  tag names, rejecting ratings outside 1–5) before delegating to the
+  DAO. `PostService` additionally implements in-memory caching (see
+  Section 8). `ReportService` is a thin pass-through, since a
+  read-only report has no invalid state to reject.
 - **`model/`** — plain Java objects (`Post`, `Comment`, `Review`,
-  `Tag`, `User`) representing one row each, decoupled from any
+  `Tag`, `User`, `PostEngagement`) representing one row (or, for
+  `PostEngagement`, one aggregated result row) each, decoupled from any
   database-specific type (e.g. `ResultSet` is fully consumed inside
   the DAO and never exposed to callers).
-- **`BlogApp.java`** — the JavaFX Controller layer: builds the UI,
-  handles user actions, and calls Service methods. Contains no
-  direct SQL or JDBC code.
+- **`BlogApp.java`** — the JavaFX Controller layer: builds the UI
+  (a `TabPane` with Posts / Tags / Analytics tabs), handles user
+  actions, and calls Service methods. Contains no direct SQL or JDBC
+  code.
 
-## 7. In-Memory Caching (User Story 3.2)
+## 8. In-Memory Caching (User Story 3.2)
 
 `PostService` caches the result of `getAllPosts()` in a
 `List<Post>` field. Cache invalidation is **fine-grained** rather
@@ -153,14 +264,15 @@ This guarantees the cache is never stale after a write performed by
 the application itself, while avoiding an unnecessary full re-fetch
 from the database on every change.
 
-## 8. Known Scope Decisions
+## 9. Known Scope Decisions
 
 - Caching was applied only to `Post` reads, matching the specific
   wording of User Story 3.2. The same pattern is directly extensible
   to other entities if required.
 - The JavaFX UI implements full CRUD, search (case-insensitive,
-  live-filtering on title), and pagination for Posts. Comments,
-  Reviews, and Tags have complete Model/DAO/Service coverage but are
-  not yet wired into a dedicated screen — this was a deliberate time
-  allocation decision given the entity CRUD pattern is already fully
-  demonstrated and directly transferable.
+  live-filtering on title), and pagination for Posts (Posts tab); full
+  CRUD plus attach/detach for Tags, including duplicate-name
+  rejection (Tags tab); and a multi-table aggregate report (Analytics
+  tab). Reviews are creatable through the UI but not yet listable in a
+  dedicated view — the `ReviewDAO`/`ReviewService` read path
+  (`getReviewsForPost`) is complete and ready to wire in.

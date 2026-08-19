@@ -6,6 +6,8 @@ import java.sql.SQLException;
 import java.util.List;
 
 public class CommentService {
+    private static final int BODY_MAX_LENGTH = 500;
+
     private CommentDAO commentDAO;
 
     public CommentService() {
@@ -15,6 +17,9 @@ public class CommentService {
     public void createComment(int postId, int userId, String body) throws SQLException {
         if (body == null || body.isBlank()) {
             throw new IllegalArgumentException("Comment body cannot be empty.");
+        }
+        if (body.trim().length() > BODY_MAX_LENGTH) {
+            throw new IllegalArgumentException("Comment must be " + BODY_MAX_LENGTH + " characters or fewer.");
         }
         commentDAO.createComment(postId, userId, body);
     }
